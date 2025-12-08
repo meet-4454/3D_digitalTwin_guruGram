@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Delhi NCR Flood Visualization</title>
+    <script src="https://cdn.maptiler.com/maptiler-sdk-js/v2.0.3/maptiler-sdk.umd.js"></script>
+    <link href="https://cdn.maptiler.com/maptiler-sdk-js/v2.0.3/maptiler-sdk.css" rel="stylesheet" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body { margin: 0; padding: 0; overflow: hidden; font-family: Arial, sans-serif; }
+        #map { width: 100vw; height: 100vh; }
+
+        #legend {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(255,255,255,0.97);
+            padding: 16px 20px;
+            border-radius: 14px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+            z-index: 1000;
+            max-width: 270px;
+            backdrop-filter: blur(12px);
+        }
+        #legend h3 {
+            margin: 0 0 14px 0;
+            font-size: 18px;
+            color: #1e40af;
+            font-weight: bold;
+        }
+        .depth-legend {
+            margin-top: 12px;
+            padding: 14px;
+            background: #f8fafc;
+            border-radius: 10px;
+            font-size: 12px;
+            border: 1px solid #e2e8f0;
+        }
+        .depth-legend h4 { margin: 0 0 10px 0; font-size: 13px; color: #1e293b; }
+        .legend-item { display: flex; align-items: center; margin: 8px 0; }
+        .legend-color {
+            width: 34px; height: 18px; margin-right: 12px; border-radius: 5px;
+            border: 1px solid rgba(0,0,0,0.15);
+        }
+
+        #fullscreenBtn {
+            position: absolute;
+            bottom: 28px;
+            right: 28px;
+            background: rgba(30,64,175,0.95);
+            color: white;
+            border: none;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            cursor: pointer;
+            z-index: 1000;
+            font-size: 26px;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        #fullscreenBtn:hover {
+            background: #1e40af;
+            transform: scale(1.12);
+        }
+
+        .depth-label {
+            position: absolute;
+            background: rgba(15, 23, 42, 0.85);
+            color: #e0f2fe;
+            padding: 3px 7px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            pointer-events: none;
+            white-space: nowrap;
+            z-index: 10;
+            transform: translate(-50%, -50%);
+            border: 1px solid rgba(100, 150, 255, 0.4);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            display: none;
+        }
+
+        #timeControls {
+            position: absolute;
+            bottom: 28px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255,255,255,0.97);
+            padding: 16px 24px;
+            border-radius: 14px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+            z-index: 1000;
+            backdrop-filter: blur(12px);
+            min-width: 420px;
+        }
+
+        #timeDisplay {
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+            color: #1e40af;
+            margin-bottom: 16px;
+            font-family: 'Courier New', monospace;
+            letter-spacing: 2px;
+        }
+
+        #controlsRow {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 12px;
+        }
+
+        #playPauseBtn {
+            background: #1e40af;
+            color: white;
+            border: none;
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 12px rgba(30, 64, 175, 0.3);
+            transition: all 0.3s ease;
+            flex-shrink: 0;
+        }
+
+        #playPauseBtn:hover {
+            background: #1e3a8a;
+            transform: scale(1.1);
+        }
+
+        #playPauseBtn svg {
+            width: 20px;
+            height: 20px;
+            fill: white;
+        }
+
+        #sliderContainer {
+            flex: 1;
+            position: relative;
+        }
+
+        #timeSlider {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: linear-gradient(to right, #bbdefb, #1976d2);
+            outline: none;
+            -webkit-appearance: none;
+            cursor: pointer;
+        }
+
+        #timeSlider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #1e40af;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            transition: all 0.2s ease;
+        }
+
+        #timeSlider::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+            background: #1e3a8a;
+        }
+
+        #timeSlider::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #1e40af;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            transition: all 0.2s ease;
+        }
+
+        #timeSlider::-moz-range-thumb:hover {
+            transform: scale(1.2);
+            background: #1e3a8a;
+        }
+
+        #timeLabels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            color: #64748b;
+            font-weight: 600;
+            margin-top: 6px;
+            font-family: 'Courier New', monospace;
+        }
+
+        .play-icon {
+            display: block;
+        }
+
+        .pause-icon {
+            display: none;
+        }
+
+        #playPauseBtn.playing .play-icon {
+            display: none;
+        }
+
+        #playPauseBtn.playing .pause-icon {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+
+    <div id="legend">
+        <h3>3D Flood Visualization</h3>
+        <div class="depth-legend">
+            <h4>Water Depth</h4>
+            <div class="legend-item"><div class="legend-color" style="background:#bbdefb;"></div><span>&lt; 0.5 m</span></div>
+            <div class="legend-item"><div class="legend-color" style="background:#42a5f5;"></div><span>0.5 – 1 m</span></div>
+            <div class="legend-item"><div class="legend-color" style="background:#1976d2;"></div><span>1 – 2 m</span></div>
+            <div class="legend-item"><div class="legend-color" style="background:#0d47a1;"></div><span>&gt; 2 m</span></div>
+        </div>
+    </div>
+
+    <div id="timeControls">
+        <div id="timeDisplay">00:00</div>
+        <div id="controlsRow">
+            <button id="playPauseBtn" title="Play/Pause">
+                <svg class="play-icon" viewBox="0 0 24 24">
+                    <path d="M8 5v14l11-7z"/>
+                </svg>
+                <svg class="pause-icon" viewBox="0 0 24 24">
+                    <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>
+                </svg>
+            </button>
+            <div id="sliderContainer">
+                <input type="range" id="timeSlider" min="0" max="540" value="0" step="1">
+                <div id="timeLabels">
+                    <span>00:00</span>
+                    <span>09:00</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <button id="fullscreenBtn" title="Toggle Fullscreen">
+        <svg viewBox="0 0 24 24" width="28" height="28" fill="white">
+            <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+        </svg>
+    </button>
+
+    <script>
+        let map, scene, camera, renderer;
+        let waterMeshes = [];
+        let modelTransform;
+        let waveSpeed = 1.0;
+        let depthScale = 1.0;
+        let depthLabels = [];
+        let currentTimestamp = 1;
+        let isPlaying = false;
+        let playInterval = null;
+
+        const API_KEY = '3vyFCdEjKRCq9JRv9kWH';
+        const S3_BUCKET_BASE_URL = 'YOUR_S3_BUCKET_URL'; // Replace with your S3 bucket URL
+        // Example: 'https://your-bucket.s3.amazonaws.com/flood-data/'
+        
+        // Configuration: 10 timestamps over 9 hours (540 minutes)
+        const TOTAL_TIMESTAMPS = 10;
+        const TOTAL_MINUTES = 540; // 9 hours
+        const MINUTES_PER_TIMESTAMP = TOTAL_MINUTES / (TOTAL_TIMESTAMPS - 1); // 60 minutes
+
+        maptilersdk.config.apiKey = API_KEY;
+
+        // Convert minutes to timestamp (1-10)
+        function minutesToTimestamp(minutes) {
+            return Math.floor(minutes / MINUTES_PER_TIMESTAMP) + 1;
+        }
+
+        // Convert timestamp to minutes
+        function timestampToMinutes(timestamp) {
+            return (timestamp - 1) * MINUTES_PER_TIMESTAMP;
+        }
+
+        // Format minutes to HH:MM
+        function formatTime(minutes) {
+            const hours = Math.floor(minutes / 60);
+            const mins = Math.floor(minutes % 60);
+            return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+        }
+
+        const customLayer = {
+            id: '3d-model',
+            type: 'custom',
+            renderingMode: '3d',
+           
+            onAdd: function(map, gl) {
+                this.camera = new THREE.Camera();
+                this.scene = new THREE.Scene();
+                camera = this.camera;
+                scene = this.scene;
+
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+                this.scene.add(ambientLight);
+
+                const directionalLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
+                directionalLight1.position.set(100, 200, 100);
+                this.scene.add(directionalLight1);
+
+                const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.4);
+                directionalLight2.position.set(-100, 100, -100);
+                this.scene.add(directionalLight2);
+
+                this.renderer = new THREE.WebGLRenderer({
+                    canvas: map.getCanvas(),
+                    context: gl,
+                    antialias: true
+                });
+                renderer = this.renderer;
+
+                this.renderer.autoClear = false;
+                this.renderer.shadowMap.enabled = true;
+            },
+
+            render: function(gl, matrix) {
+                const rotationX = new THREE.Matrix4().makeRotationAxis(
+                    new THREE.Vector3(1, 0, 0),
+                    modelTransform.rotateX
+                );
+                const rotationY = new THREE.Matrix4().makeRotationAxis(
+                    new THREE.Vector3(0, 1, 0),
+                    modelTransform.rotateY
+                );
+                const rotationZ = new THREE.Matrix4().makeRotationAxis(
+                    new THREE.Vector3(0, 0, 1),
+                    modelTransform.rotateZ
+                );
+
+                const m = new THREE.Matrix4().fromArray(matrix);
+                const l = new THREE.Matrix4()
+                    .makeTranslation(
+                        modelTransform.translateX,
+                        modelTransform.translateY,
+                        modelTransform.translateZ
+                    )
+                    .scale(
+                        new THREE.Vector3(
+                            modelTransform.scale,
+                            -modelTransform.scale,
+                            modelTransform.scale
+                        )
+                    )
+                    .multiply(rotationX)
+                    .multiply(rotationY)
+                    .multiply(rotationZ);
+
+                this.camera.projectionMatrix = m.multiply(l);
+               
+                const time = performance.now() * 0.001;
+                waterMeshes.forEach(mesh => {
+                    if (mesh.material.uniforms) {
+                        mesh.material.uniforms.time.value = time * waveSpeed;
+                    }
+                });
+
+                this.renderer.resetState();
+                this.renderer.render(this.scene, this.camera);
+                map.triggerRepaint();
+
+                updateDepthLabels();
+            }
+        };
+
+        map = new maptilersdk.Map({
+            container: 'map',
+            style: maptilersdk.MapStyle.STREETS,
+            center: [77.027, 28.448],
+            zoom: 16,
+            pitch: 60,
+            bearing: -20,
+            antialias: true
+        });
+
+        map.on('style.load', function() {
+            map.addLayer({
+                'id': '3d-buildings',
+                'source': 'composite',
+                'source-layer': 'building',
+                'filter': ['==', 'extrude', 'true'],
+                'type': 'fill-extrusion',
+                'minzoom': 14,
+                'paint': {
+                    'fill-extrusion-color': '#e0e0e0',
+                    'fill-extrusion-height': [
+                        'interpolate',
+                        ['linear'],
+                        ['zoom'],
+                        14, 0,
+                        14.5, ['get', 'height']
+                    ],
+                    'fill-extrusion-base': [
+                        'interpolate',
+                        ['linear'],
+                        ['zoom'],
+                        14, 0,
+                        14.5, ['get', 'min_height']
+                    ],
+                    'fill-extrusion-opacity': 0.9
+                }
+            });
+
+            const modelOrigin = [77.027, 28.448];
+            const modelAltitude = 0;
+            const modelRotate = [Math.PI / 2, 0, 0];
+
+            const modelAsMercatorCoordinate = maptilersdk.MercatorCoordinate.fromLngLat(
+                modelOrigin,
+                modelAltitude
+            );
+
+            modelTransform = {
+                translateX: modelAsMercatorCoordinate.x,
+                translateY: modelAsMercatorCoordinate.y,
+                translateZ: modelAsMercatorCoordinate.z,
+                rotateX: modelRotate[0],
+                rotateY: modelRotate[1],
+                rotateZ: modelRotate[2],
+                scale: modelAsMercatorCoordinate.meterInMercatorCoordinateUnits()
+            };
+
+            map.addLayer(customLayer);
+            loadFloodData();
+        });
+
+        async function loadFloodData() {
+            try {
+                let url = `${S3_BUCKET_BASE_URL}gridded_30m_T${currentTimestamp}_flood_only.geojson`;
+                
+                if (S3_BUCKET_BASE_URL === 'YOUR_S3_BUCKET_URL') {
+                    url = `gridded_30m_T${currentTimestamp}_flood_only.geojson`;
+                }
+                
+                const res = await fetch(url);
+                if (!res.ok) throw new Error('File not found');
+                const data = await res.json();
+                createWaterLayer(data);
+            } catch (err) {
+                console.error('Error loading flood data:', err);
+                alert(`Error: Could not load T${currentTimestamp} flood data\nMake sure the file exists or S3 bucket is configured.\n\n` + err.message);
+            }
+        }
+
+        function createWaterLayer(geojsonData) {
+            if (!scene) return;
+
+            waterMeshes.forEach(mesh => {
+                scene.remove(mesh);
+                if (mesh.geometry) mesh.geometry.dispose();
+                if (mesh.material) mesh.material.dispose();
+            });
+            waterMeshes = [];
+
+            depthLabels.forEach(label => label.element.remove());
+            depthLabels = [];
+
+            if (geojsonData.type !== 'FeatureCollection') {
+                alert('Invalid GeoJSON format');
+                return;
+            }
+
+            let minDepth = Infinity;
+            let maxDepth = -Infinity;
+            let polygonCount = 0;
+
+            geojsonData.features.forEach(feature => {
+                if (!feature.geometry || !feature.properties) return;
+               
+                const depth = parseFloat(feature.properties.value);
+                if (isNaN(depth) || depth <= 0) return;
+
+                minDepth = Math.min(minDepth, depth);
+                maxDepth = Math.max(maxDepth, depth);
+
+                if (feature.geometry.type === 'Polygon') {
+                    const coords = feature.geometry.coordinates[0];
+                    createPolygonWater(coords, depth, maxDepth);
+                   
+                    const centroid = calculateCentroid(coords);
+                    createDepthLabel(centroid, depth);
+                   
+                    polygonCount++;
+                }
+            });
+
+            console.log(`Loaded ${polygonCount} water polygons. Depth: ${minDepth}-${maxDepth}m`);
+        }
+
+        function createPolygonWater(coordinates, depth, maxDepth) {
+            const points = [];
+            coordinates.forEach(coord => {
+                const mercator = maptilersdk.MercatorCoordinate.fromLngLat([coord[0], coord[1]]);
+                const x = (mercator.x - modelTransform.translateX) / modelTransform.scale;
+                const y = (mercator.y - modelTransform.translateY) / modelTransform.scale;
+                points.push(new THREE.Vector2(x, y));
+            });
+
+            if (points.length < 3) return;
+
+            const shape = new THREE.Shape(points);
+            
+            const scaledDepth = depth * depthScale;
+            const extrudeSettings = {
+                depth: scaledDepth,
+                bevelEnabled: false
+            };
+            
+            const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+            
+            geometry.rotateX(-Math.PI / 2);
+            geometry.computeVertexNormals();
+
+            const waterMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    time: { value: 0 },
+                    depth: { value: depth },
+                    scaledDepth: { value: scaledDepth },
+                    maxDepth: { value: maxDepth },
+                    opacity: { value: 0.75 }
+                },
+                vertexShader: `
+                    uniform float time;
+                    uniform float scaledDepth;
+                    
+                    varying vec2 vUv;
+                    varying vec3 vPosition;
+                    varying float vElevation;
+                    varying vec3 vNormal;
+                    varying float vIsTopSurface;
+                    
+                    void main() {
+                        vUv = uv;
+                        vPosition = position;
+                        vNormal = normal;
+                        vec3 pos = position;
+                        
+                        vIsTopSurface = step(0.5, normal.y);
+                        
+                        if (vIsTopSurface > 0.5) {
+                            float wave = 0.0;
+                            wave += sin(pos.x * 0.008 + time * 0.5) * 0.8;
+                            wave += sin(pos.z * 0.01 - time * 0.4) * 0.6;
+                            wave += sin(pos.x * 0.015 + pos.z * 0.012 + time * 0.8) * 0.5;
+                            wave += cos(pos.x * 0.02 - pos.z * 0.015 - time * 0.6) * 0.4;
+                            
+                            wave += sin(pos.x * 0.05 + pos.z * 0.05 + time * 2.0) * 0.15;
+                            
+                            vElevation = wave;
+                            pos.y += wave;
+                        } else {
+                            vElevation = 0.0;
+                        }
+                        
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform float opacity;
+                    uniform float time;
+                    uniform float depth;
+                    uniform float maxDepth;
+                    
+                    varying vec2 vUv;
+                    varying vec3 vPosition;
+                    varying float vElevation;
+                    varying vec3 vNormal;
+                    varying float vIsTopSurface;
+                    
+                    vec3 getDepthColor(float d, float maxD) {
+                        vec3 color1 = vec3(0.73, 0.87, 0.98);
+                        vec3 color2 = vec3(0.26, 0.65, 0.96);
+                        vec3 color3 = vec3(0.10, 0.46, 0.82);
+                        vec3 color4 = vec3(0.05, 0.28, 0.63);
+                        
+                        if (d < 0.5) {
+                            return color1;
+                        } else if (d < 1.0) {
+                            return mix(color2, color3, (d - 0.5) / 0.5);
+                        } else if (d < 2.0) {
+                            return mix(color3, color4, (d - 1.0) / 1.0);
+                        } else {
+                            return color4;
+                        }
+                    }
+                    
+                    float causticPattern(vec2 p, float t) {
+                        float c = 0.0;
+                        c += sin(p.x * 1.4 + t * 0.5) * cos(p.y * 1.3 - t * 0.4);
+                        c += sin(p.x * 1.9 - t * 0.8) * cos(p.y * 1.7 + t * 0.6);
+                        return pow(abs(c * 0.5), 1.2);
+                    }
+                    
+                    void main() {
+                        vec3 color = getDepthColor(depth, maxDepth);
+                        float finalOpacity = opacity;
+                        
+                        if (vIsTopSurface > 0.5) {
+                            vec2 causticsUV = vPosition.xz * 0.03;
+                            float caustics = causticPattern(causticsUV, time);
+                            caustics += causticPattern(causticsUV * 1.5, time * 1.3) * 0.5;
+                            
+                            float causticsIntensity = exp(-depth * 0.3) * 0.3;
+                            color += vec3(caustics * causticsIntensity);
+                            
+                            vec3 viewDir = normalize(vec3(0.0, 1.0, 0.5));
+                            float fresnel = pow(1.0 - max(dot(viewDir, vNormal), 0.0), 2.0);
+                            color = mix(color, vec3(0.7, 0.8, 0.95), fresnel * 0.25);
+                            
+                            float highlight = smoothstep(0.3, 0.7, vElevation) * 0.15;
+                            color += vec3(highlight);
+                            
+                            float foam = smoothstep(0.5, 0.8, vElevation);
+                            color = mix(color, vec3(0.9, 0.95, 1.0), foam * 0.25);
+                            
+                            finalOpacity = opacity * (0.75 + (depth / maxDepth) * 0.25);
+                        } else {
+                            color = color * 0.7;
+                            finalOpacity = opacity * 0.5;
+                        }
+                        
+                        gl_FragColor = vec4(color, finalOpacity);
+                    }
+                `,
+                transparent: true,
+                side: THREE.DoubleSide,
+                depthWrite: false
+            });
+
+            const waterMesh = new THREE.Mesh(geometry, waterMaterial);
+            waterMesh.position.y = 0;
+            
+            scene.add(waterMesh);
+            waterMeshes.push(waterMesh);
+        }
+
+        function calculateCentroid(coordinates) {
+            let sumLng = 0, sumLat = 0;
+            coordinates.forEach(coord => {
+                sumLng += coord[0];
+                sumLat += coord[1];
+            });
+            return [sumLng / coordinates.length, sumLat / coordinates.length];
+        }
+
+        function createDepthLabel(lngLat, depth) {
+            const labelElement = document.createElement('div');
+            labelElement.className = 'depth-label';
+            labelElement.textContent = depth + ' m';
+            document.body.appendChild(labelElement);
+
+            depthLabels.push({
+                element: labelElement,
+                lngLat: lngLat,
+                depth: depth
+            });
+        }
+
+        function updateDepthLabels() {
+            const zoom = map.getZoom();
+            const showLabels = zoom >= 17;
+
+            depthLabels.forEach(label => {
+                if (showLabels) {
+                    const mercator = maptilersdk.MercatorCoordinate.fromLngLat(label.lngLat);
+                    const x = (mercator.x - modelTransform.translateX) / modelTransform.scale;
+                    const y = (mercator.y - modelTransform.translateY) / modelTransform.scale;
+                    const z = label.depth * depthScale;
+                   
+                    const vector = new THREE.Vector3(x, z, -y);
+                    vector.project(camera);
+                   
+                    const canvas = map.getCanvas();
+                    const widthHalf = canvas.width / 2;
+                    const heightHalf = canvas.height / 2;
+                   
+                    const screenX = (vector.x * widthHalf) + widthHalf;
+                    const screenY = -(vector.y * heightHalf) + heightHalf;
+                   
+                    if (vector.z < 1) {
+                        label.element.style.display = 'block';
+                        label.element.style.left = screenX + 'px';
+                        label.element.style.top = screenY + 'px';
+                    } else {
+                        label.element.style.display = 'none';
+                    }
+                } else {
+                    label.element.style.display = 'none';
+                }
+            });
+        }
+       
+        // Fullscreen toggle
+        document.getElementById('fullscreenBtn').addEventListener('click', () => {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen();
+            } else {
+                document.exitFullscreen();
+            }
+        });
+
+        // Time controls
+        const timeSlider = document.getElementById('timeSlider');
+        const timeDisplay = document.getElementById('timeDisplay');
+        const playPauseBtn = document.getElementById('playPauseBtn');
+
+        function updateTimeDisplay(minutes) {
+            timeDisplay.textContent = formatTime(minutes);
+        }
+
+        function updateTimestamp(minutes) {
+            const newTimestamp = minutesToTimestamp(minutes);
+            if (newTimestamp !== currentTimestamp && newTimestamp >= 1 && newTimestamp <= TOTAL_TIMESTAMPS) {
+                currentTimestamp = newTimestamp;
+                loadFloodData();
+            }
+        }
+
+        timeSlider.addEventListener('input', (e) => {
+            const minutes = parseInt(e.target.value);
+            updateTimeDisplay(minutes);
+        });
+
+        timeSlider.addEventListener('change', (e) => {
+            const minutes = parseInt(e.target.value);
+            updateTimestamp(minutes);
+        });
+
+        function togglePlayPause() {
+            isPlaying = !isPlaying;
+            
+            if (isPlaying) {
+                playPauseBtn.classList.add('playing');
+                playInterval = setInterval(() => {
+                    let currentMinutes = parseInt(timeSlider.value);
+                    currentMinutes += 6; // Advance by 6 minutes per step (for smooth animation)
+                    
+                    if (currentMinutes > TOTAL_MINUTES) {
+                        currentMinutes = 0; // Loop back to start
+                    }
+                    
+                    timeSlider.value = currentMinutes;
+                    updateTimeDisplay(currentMinutes);
+                    updateTimestamp(currentMinutes);
+                }, 500); // Update every 500ms
+            } else {
+                playPauseBtn.classList.remove('playing');
+                if (playInterval) {
+                    clearInterval(playInterval);
+                    playInterval = null;
+                }
+            }
+        }
+
+        playPauseBtn.addEventListener('click', togglePlayPause);
+
+        // Initialize display
+        updateTimeDisplay(0);
+    </script>
+</body>
+</html>
