@@ -84,138 +84,6 @@
             box-shadow: 0 2px 8px rgba(0,0,0,0.3);
             display: none;
         }
-
-        #timeControls {
-            position: absolute;
-            bottom: 28px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(255,255,255,0.97);
-            padding: 16px 24px;
-            border-radius: 14px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.2);
-            z-index: 1000;
-            backdrop-filter: blur(12px);
-            min-width: 420px;
-        }
-
-        #timeDisplay {
-            text-align: center;
-            font-size: 24px;
-            font-weight: bold;
-            color: #1e40af;
-            margin-bottom: 16px;
-            font-family: 'Courier New', monospace;
-            letter-spacing: 2px;
-        }
-
-        #controlsRow {
-            display: flex;
-            align-items: center;
-            gap: 16px;
-            margin-bottom: 12px;
-        }
-
-        #playPauseBtn {
-            background: #1e40af;
-            color: white;
-            border: none;
-            width: 48px;
-            height: 48px;
-            border-radius: 50%;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 4px 12px rgba(30, 64, 175, 0.3);
-            transition: all 0.3s ease;
-            flex-shrink: 0;
-        }
-
-        #playPauseBtn:hover {
-            background: #1e3a8a;
-            transform: scale(1.1);
-        }
-
-        #playPauseBtn svg {
-            width: 20px;
-            height: 20px;
-            fill: white;
-        }
-
-        #sliderContainer {
-            flex: 1;
-            position: relative;
-        }
-
-        #timeSlider {
-            width: 100%;
-            height: 6px;
-            border-radius: 3px;
-            background: linear-gradient(to right, #bbdefb, #1976d2);
-            outline: none;
-            -webkit-appearance: none;
-            cursor: pointer;
-        }
-
-        #timeSlider::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            appearance: none;
-            width: 20px;
-            height: 20px;
-            border-radius: 50%;
-            background: #1e40af;
-            cursor: pointer;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-            transition: all 0.2s ease;
-        }
-
-        #timeSlider::-webkit-slider-thumb:hover {
-            transform: scale(1.2);
-            background: #1e3a8a;
-        }
-
-        #timeSlider::-moz-range-thumb {
-            width: 20px;
-            height: 20px;
-            border-radius: 50%;
-            background: #1e40af;
-            cursor: pointer;
-            border: none;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-            transition: all 0.2s ease;
-        }
-
-        #timeSlider::-moz-range-thumb:hover {
-            transform: scale(1.2);
-            background: #1e3a8a;
-        }
-
-        #timeLabels {
-            display: flex;
-            justify-content: space-between;
-            font-size: 10px;
-            color: #64748b;
-            font-weight: 600;
-            margin-top: 6px;
-            font-family: 'Courier New', monospace;
-        }
-
-        .play-icon {
-            display: block;
-        }
-
-        .pause-icon {
-            display: none;
-        }
-
-        #playPauseBtn.playing .play-icon {
-            display: none;
-        }
-
-        #playPauseBtn.playing .pause-icon {
-            display: block;
-        }
     </style>
 </head>
 <body>
@@ -232,27 +100,6 @@
         </div>
     </div>
 
-    <div id="timeControls">
-        <div id="timeDisplay">00:00</div>
-        <div id="controlsRow">
-            <button id="playPauseBtn" title="Play/Pause">
-                <svg class="play-icon" viewBox="0 0 24 24">
-                    <path d="M8 5v14l11-7z"/>
-                </svg>
-                <svg class="pause-icon" viewBox="0 0 24 24">
-                    <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>
-                </svg>
-            </button>
-            <div id="sliderContainer">
-                <input type="range" id="timeSlider" min="0" max="540" value="0" step="1">
-                <div id="timeLabels">
-                    <span>00:00</span>
-                    <span>09:00</span>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <button id="fullscreenBtn" title="Toggle Fullscreen">
         <svg viewBox="0 0 24 24" width="28" height="28" fill="white">
             <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
@@ -266,37 +113,10 @@
         let waveSpeed = 1.0;
         let depthScale = 1.0;
         let depthLabels = [];
-        let currentTimestamp = 1;
-        let isPlaying = false;
-        let playInterval = null;
 
         const API_KEY = '3vyFCdEjKRCq9JRv9kWH';
-        const S3_BUCKET_BASE_URL = 'YOUR_S3_BUCKET_URL'; // Replace with your S3 bucket URL
-        // Example: 'https://your-bucket.s3.amazonaws.com/flood-data/'
-        
-        // Configuration: 10 timestamps over 9 hours (540 minutes)
-        const TOTAL_TIMESTAMPS = 10;
-        const TOTAL_MINUTES = 540; // 9 hours
-        const MINUTES_PER_TIMESTAMP = TOTAL_MINUTES / (TOTAL_TIMESTAMPS - 1); // 60 minutes
 
         maptilersdk.config.apiKey = API_KEY;
-
-        // Convert minutes to timestamp (1-10)
-        function minutesToTimestamp(minutes) {
-            return Math.floor(minutes / MINUTES_PER_TIMESTAMP) + 1;
-        }
-
-        // Convert timestamp to minutes
-        function timestampToMinutes(timestamp) {
-            return (timestamp - 1) * MINUTES_PER_TIMESTAMP;
-        }
-
-        // Format minutes to HH:MM
-        function formatTime(minutes) {
-            const hours = Math.floor(minutes / 60);
-            const mins = Math.floor(minutes % 60);
-            return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
-        }
 
         const customLayer = {
             id: '3d-model',
@@ -443,11 +263,7 @@
 
         async function loadFloodData() {
             try {
-                let url = `${S3_BUCKET_BASE_URL}gridded_30m_T${currentTimestamp}_flood_only.geojson`;
-                
-                if (S3_BUCKET_BASE_URL === 'YOUR_S3_BUCKET_URL') {
-                    url = `gridded_30m_T${currentTimestamp}_flood_only.geojson`;
-                }
+                const url = 'gridded_30m_T1_flood_only.geojson';
                 
                 const res = await fetch(url);
                 if (!res.ok) throw new Error('File not found');
@@ -455,7 +271,7 @@
                 createWaterLayer(data);
             } catch (err) {
                 console.error('Error loading flood data:', err);
-                alert(`Error: Could not load T${currentTimestamp} flood data\nMake sure the file exists or S3 bucket is configured.\n\n` + err.message);
+                alert('Error: Could not load flood data\nMake sure the file "gridded_30m_T1_flood_only.geojson" exists in the same directory.\n\n' + err.message);
             }
         }
 
@@ -715,64 +531,6 @@
                 document.exitFullscreen();
             }
         });
-
-        // Time controls
-        const timeSlider = document.getElementById('timeSlider');
-        const timeDisplay = document.getElementById('timeDisplay');
-        const playPauseBtn = document.getElementById('playPauseBtn');
-
-        function updateTimeDisplay(minutes) {
-            timeDisplay.textContent = formatTime(minutes);
-        }
-
-        function updateTimestamp(minutes) {
-            const newTimestamp = minutesToTimestamp(minutes);
-            if (newTimestamp !== currentTimestamp && newTimestamp >= 1 && newTimestamp <= TOTAL_TIMESTAMPS) {
-                currentTimestamp = newTimestamp;
-                loadFloodData();
-            }
-        }
-
-        timeSlider.addEventListener('input', (e) => {
-            const minutes = parseInt(e.target.value);
-            updateTimeDisplay(minutes);
-        });
-
-        timeSlider.addEventListener('change', (e) => {
-            const minutes = parseInt(e.target.value);
-            updateTimestamp(minutes);
-        });
-
-        function togglePlayPause() {
-            isPlaying = !isPlaying;
-            
-            if (isPlaying) {
-                playPauseBtn.classList.add('playing');
-                playInterval = setInterval(() => {
-                    let currentMinutes = parseInt(timeSlider.value);
-                    currentMinutes += 6; // Advance by 6 minutes per step (for smooth animation)
-                    
-                    if (currentMinutes > TOTAL_MINUTES) {
-                        currentMinutes = 0; // Loop back to start
-                    }
-                    
-                    timeSlider.value = currentMinutes;
-                    updateTimeDisplay(currentMinutes);
-                    updateTimestamp(currentMinutes);
-                }, 500); // Update every 500ms
-            } else {
-                playPauseBtn.classList.remove('playing');
-                if (playInterval) {
-                    clearInterval(playInterval);
-                    playInterval = null;
-                }
-            }
-        }
-
-        playPauseBtn.addEventListener('click', togglePlayPause);
-
-        // Initialize display
-        updateTimeDisplay(0);
     </script>
 </body>
 </html>
