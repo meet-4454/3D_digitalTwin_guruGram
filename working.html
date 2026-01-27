@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Delhi NCR 3D Flood - Zero Lag Rendering</title>
+    <title>3D Flood Twin</title>
     <script src="https://cdn.maptiler.com/maptiler-sdk-js/v2.0.3/maptiler-sdk.umd.js"></script>
     <link href="https://cdn.maptiler.com/maptiler-sdk-js/v2.0.3/maptiler-sdk.css" rel="stylesheet" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -47,8 +47,8 @@
         #timeSlider::-moz-range-thumb { width: 20px; height: 20px; background: #dc2626; border-radius: 50%; border: none; cursor: pointer; }
 
         #sliderButtons { display: flex; gap: 8px; justify-content: center; margin-top: 12px; }
-        #sliderButtons button { background: #3b82f6; color: white; border: none; padding: 10px 16px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s; }
-        #sliderButtons button:hover { background: #1e40af; transform: translateY(-2px); }
+        #sliderButtons button { background: #3b82f6; color: white; border: none; padding: 10px 16px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; }
+        #sliderButtons button:hover { background: #1e40af; }
 
         .speed-control { text-align: center; margin-top: 10px; font-size: 11px; }
         .speed-control select { padding: 4px 8px; border-radius: 4px; border: 1px solid #ccc; }
@@ -67,7 +67,7 @@
         <div class="loader">
             <div class="spinner"></div>
             <h2 style="margin-top: 20px;">Initializing Flood Visualization...</h2>
-            <p id="initialLoadStatus">Loading master geometry...</p>
+            <p id="initialLoadStatus">Loading coordinates...</p>
             <p id="loadingProgress" style="font-size: 12px; margin-top: 10px;">0%</p>
         </div>
     </div>
@@ -80,6 +80,10 @@
         <div class="legend-item"><div class="legend-color" style="background:#42a5f5;"></div><span>0.5–1</span></div>
         <div class="legend-item"><div class="legend-color" style="background:#1976d2;"></div><span>1–2</span></div>
         <div class="legend-item"><div class="legend-color" style="background:#0d47a1;"></div><span>&gt; 2</span></div>
+        <div id="cacheInfo" style="display:none;">
+            <div>Step: 0/336</div>
+            <div style="margin-top: 5px; font-size: 9px;">Memory: Ultra-optimized</div>
+        </div>
     </div>
 
     <div id="timelineControls">
@@ -114,14 +118,18 @@
         let isPlaying = false;
         let playInterval = null;
         let playSpeed = 500;
-        let depthScale = 1.0;
+        let depthScale = 3.0;
         
-        // Pre-created meshes (fixed geometry, reused across timesteps)
-        let waterMeshes = []; // Array of { mesh, polygonIndex }
-        let depthDataView = null; // Float32Array from binary
+        // Single merged geometry (all polygons in one buffer)
+        let mergedGeometry = null;
+        let mergedMesh = null;
+        let polygonIndex = null;
+        let currentChunkData = null;
+        let currentChunkIndex = -1;
         let polygonCount = 0;
-        let minDepthGlobal = Infinity;
-        let maxDepthGlobal = -Infinity;
+        
+        const CHUNK_SIZE = 10;
+        const TOTAL_CHUNKS = 34;
 
         const customLayer = {
             id: '3d-model', type: 'custom', renderingMode: '3d',
@@ -171,40 +179,34 @@
 
         async function initializeVisualization() {
             try {
-                // STEP 1: Load master GeoJSON
-                document.getElementById('initialLoadStatus').textContent = 'Loading polygon geometry...';
-                const res = await fetch('flood_depth_master_slim.geojson');
-                if(!res.ok) throw new Error('Master file not found');
-                const geojson = await res.json();
+                document.getElementById('initialLoadStatus').textContent = 'Loading polygon index...';
                 
-                polygonCount = geojson.features.length;
-                console.log(`✅ Master loaded: ${polygonCount} polygons`);
-                document.getElementById('loadingProgress').textContent = '50% - Creating 3D geometry...';
-
-                // STEP 2: Create all geometry once (takes time but only once)
-                const startGeom = performance.now();
-                createAllGeometry(geojson.features);
-                const geomTime = ((performance.now() - startGeom) / 1000).toFixed(2);
-                console.log(`✅ Geometry created in ${geomTime}s`);
+                // Load polygon index (metadata)
+                const indexRes = await fetch('polygon_index.json');
+                if(!indexRes.ok) throw new Error('Index file not found');
+                polygonIndex = await indexRes.json();
+                polygonCount = polygonIndex.length;
                 
-                // STEP 3: Load binary depth data
-                document.getElementById('initialLoadStatus').textContent = 'Loading 337 timesteps binary data...';
-                const binRes = await fetch('flood_depths.bin');
-                if(!binRes.ok) throw new Error('Binary file not found');
-                const buffer = await binRes.arrayBuffer();
-                depthDataView = new Float32Array(buffer);
-                console.log(`✅ Binary loaded: ${depthDataView.length} values`);
+                console.log(`✅ Index loaded: ${polygonCount} polygons`);
+                document.getElementById('loadingProgress').textContent = '25% - Loading coordinates...';
 
-                // Calculate global depth range
-                for(let i = 0; i < depthDataView.length; i++) {
-                    const d = depthDataView[i];
-                    if(d > 0) {
-                        minDepthGlobal = Math.min(minDepthGlobal, d);
-                        maxDepthGlobal = Math.max(maxDepthGlobal, d);
-                    }
-                }
-                console.log(`Depth range: ${minDepthGlobal.toFixed(3)} - ${maxDepthGlobal.toFixed(3)}m`);
+                // Load binary coordinates
+                const coordRes = await fetch('coordinates.bin');
+                if(!coordRes.ok) throw new Error('Coordinates file not found');
+                const coordBuffer = await coordRes.arrayBuffer();
+                
+                console.log(`✅ Coordinates loaded: ${(coordBuffer.byteLength / 1024 / 1024).toFixed(2)} MB`);
+                document.getElementById('loadingProgress').textContent = '50% - Building geometry...';
 
+                // Create merged geometry from binary coordinates
+                await createMergedGeometry(coordBuffer);
+                
+                console.log(`✅ Merged geometry created`);
+                document.getElementById('loadingProgress').textContent = '75% - Loading first chunk...';
+
+                // Load first chunk
+                await loadChunk(0);
+                
                 document.getElementById('loadingProgress').textContent = '100% - Ready!';
                 
                 setTimeout(() => {
@@ -214,105 +216,227 @@
                 }, 500);
                 
             } catch(err) {
-                console.error('❌ Error:', err);
+                console.error('Error:', err);
                 document.getElementById('initialLoadStatus').textContent = `Error: ${err.message}`;
             }
         }
 
-        function createAllGeometry(features) {
-            if(!scene) return;
+        async function createMergedGeometry(coordBuffer) {
+            const view = new DataView(coordBuffer);
+            let offset = 0;
 
-            // Create mesh for each polygon once
-            features.forEach((feature, idx) => {
-                const coords = feature.geometry.coordinates[0];
-                if(coords.length < 3) return;
+            const vertices = [];
+            const indices = [];
+            let vertexCount = 0;
+            const polygonVertexMap = []; // Map polygon index to vertex indices
 
-                const pts = coords.map(c=>{
-                    const [lng, lat] = c;
-                    const m = maptilersdk.MercatorCoordinate.fromLngLat([lng,lat]);
-                    return new THREE.Vector2((m.x-modelTransform.translateX)/modelTransform.scale, (m.y-modelTransform.translateY)/modelTransform.scale);
+            for(let p = 0; p < polygonCount; p++) {
+                const pointCount = view.getUint32(offset, true);
+                offset += 4;
+
+                // First pass: read all coordinates
+                const coords = [];
+                const tempOffset = offset;
+                for(let i = 0; i < pointCount; i++) {
+                    const lng = view.getFloat64(offset, true);
+                    offset += 8;
+                    const lat = view.getFloat64(offset, true);
+                    offset += 8;
+                    coords.push({lng, lat});
+                }
+
+                const polygonVertices = [];
+                const topVertices = [];
+
+                // Create vertices from coordinates
+                for(let i = 0; i < coords.length; i++) {
+                    const {lng, lat} = coords[i];
+
+                    const m = maptilersdk.MercatorCoordinate.fromLngLat([lng, lat]);
+                    const x = (m.x - modelTransform.translateX) / modelTransform.scale;
+                    const y = (m.y - modelTransform.translateY) / modelTransform.scale;
+
+                    // Bottom face (z=0)
+                    vertices.push(x, 0, y);
+                    polygonVertices.push(vertexCount);
+                    vertexCount++;
+
+                    // Top face (will be scaled by depth)
+                    vertices.push(x, depthScale, y);
+                    topVertices.push(vertexCount);
+                    vertexCount++;
+                }
+
+                polygonVertexMap.push({
+                    bottom: polygonVertices,
+                    top: topVertices,
+                    count: pointCount
                 });
 
-                if(pts.length < 3) return;
-
-                try {
-                    const shape = new THREE.Shape(pts);
-                    const geo = new THREE.ExtrudeGeometry(shape, {depth: 1, bevelEnabled: false}); // depth=1, will scale by depth value
-                    geo.rotateX(-Math.PI/2);
-
-                    // Create material (color will be updated per timestep)
-                    const mat = new THREE.MeshPhongMaterial({ 
-                        color: 0x42a5f5,
-                        transparent: true, 
-                        opacity: 0.85,
-                        side: THREE.DoubleSide 
-                    });
-
-                    const mesh = new THREE.Mesh(geo, mat);
-                    mesh.polygonIndex = idx; // Store for lookup
-                    scene.add(mesh);
-                    waterMeshes.push(mesh);
-
-                    if(idx % 10000 === 0) {
-                        document.getElementById('loadingProgress').textContent = `Creating geometry: ${Math.round(idx/polygonCount*50)}%`;
+                // Bottom face triangulation
+                if(polygonVertices.length >= 3) {
+                    for(let i = 1; i < polygonVertices.length - 1; i++) {
+                        indices.push(polygonVertices[0], polygonVertices[i], polygonVertices[i+1]);
                     }
-
-                } catch(e) {
-                    console.error(`Polygon ${idx}:`, e);
                 }
+
+                // Top face triangulation (reverse winding)
+                if(topVertices.length >= 3) {
+                    for(let i = 1; i < topVertices.length - 1; i++) {
+                        indices.push(topVertices[0], topVertices[i+1], topVertices[i]);
+                    }
+                }
+
+                // Side faces
+                for(let i = 0; i < pointCount; i++) {
+                    const j = (i + 1) % pointCount;
+                    indices.push(
+                        polygonVertices[i], polygonVertices[j], topVertices[i],
+                        polygonVertices[j], topVertices[j], topVertices[i]
+                    );
+                }
+
+                if(p % 5000 === 0) {
+                    document.getElementById('loadingProgress').textContent = `Building: ${Math.round(p/polygonCount*25 + 50)}%`;
+                }
+            }
+
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(vertices), 3));
+            geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(indices), 1));
+            geometry.computeVertexNormals();
+
+            const material = new THREE.MeshPhongMaterial({ 
+                color: 0x42a5f5,
+                transparent: true, 
+                opacity: 0.85,
+                side: THREE.DoubleSide,
+                vertexColors: true
             });
 
-            console.log(`Created ${waterMeshes.length} meshes`);
+            mergedGeometry = geometry;
+            mergedMesh = new THREE.Mesh(geometry, material);
+            mergedMesh.visible = false; // Hide all polygons initially
+            
+            // Store vertex map for height updates
+            mergedMesh.polygonVertexMap = polygonVertexMap;
+            scene.add(mergedMesh);
+
+            console.log(`Merged mesh: ${vertexCount} vertices, ${indices.length / 3} triangles`);
+        }
+
+        async function loadChunk(chunkIndex) {
+            if(chunkIndex === currentChunkIndex) return;
+            
+            console.log(`Loading chunk ${chunkIndex}/${TOTAL_CHUNKS-1}`);
+
+            try {
+                const chunkFile = `chunks/chunk_${String(chunkIndex).padStart(3, '0')}.bin`;
+                const res = await fetch(chunkFile);
+                if(!res.ok) throw new Error(`Chunk ${chunkIndex} not found`);
+                
+                const buffer = await res.arrayBuffer();
+                const view = new Float32Array(buffer);
+                
+                currentChunkData = {};
+                const startTs = chunkIndex * CHUNK_SIZE;
+                const endTs = Math.min(startTs + CHUNK_SIZE, 337);
+                
+                let idx = 0;
+                for(let ts = startTs; ts < endTs; ts++) {
+                    currentChunkData[ts] = view.slice(idx * polygonCount, (idx + 1) * polygonCount);
+                    idx++;
+                }
+                
+                currentChunkIndex = chunkIndex;
+                console.log(`✅ Chunk loaded: ${(buffer.byteLength / 1024 / 1024).toFixed(2)} MB`);
+                
+            } catch(err) {
+                console.error('Chunk error:', err);
+            }
         }
 
         function updateTimestep(step) {
-            if(!depthDataView || waterMeshes.length === 0) return;
+            if(!currentChunkData || !mergedMesh) return;
 
-            const startTime = performance.now();
+            const chunkIdx = Math.floor(step / CHUNK_SIZE);
+            if(chunkIdx !== currentChunkIndex) {
+                loadChunk(chunkIdx);
+                return;
+            }
 
-            // Update each mesh's color and scale based on depth at this timestep
-            waterMeshes.forEach(mesh => {
-                const idx = mesh.polygonIndex;
-                const depth = depthDataView[step * polygonCount + idx];
+            const depths = currentChunkData[step];
+            if(!depths) return;
 
-                if(depth > 0) {
-                    // Update scale (height of extrusion)
-                    mesh.scale.y = depth * depthScale;
-                    mesh.visible = true;
+            // Make visible on first render
+            if(!mergedMesh.visible) {
+                mergedMesh.visible = true;
+            }
 
-                    // Update color based on depth
-                    let color;
-                    if(depth < 0.5) color = 0xbbdefb;
-                    else if(depth < 1.0) color = 0x42a5f5;
-                    else if(depth < 2.0) color = 0x1976d2;
-                    else color = 0x0d47a1;
+            // Update vertex heights and colors
+            const positions = mergedGeometry.attributes.position;
+            const posArray = positions.array;
+            const colors = new Float32Array(positions.count * 3);
+            let colorIdx = 0;
 
-                    mesh.material.color.setHex(color);
+            const polygonVertexMap = mergedMesh.polygonVertexMap;
+
+            for(let p = 0; p < polygonCount; p++) {
+                const depth = depths[p];
+                let r, g, b;
+
+                if(depth <= 0) {
+                    r = g = b = 1; // White for no flood
+                } else if(depth < 0.5) {
+                    r = 0.73; g = 0.87; b = 0.98; // Light blue
+                } else if(depth < 1.0) {
+                    r = 0.26; g = 0.65; b = 0.96; // Blue
+                } else if(depth < 2.0) {
+                    r = 0.10; g = 0.46; b = 0.82; // Dark blue
                 } else {
-                    mesh.visible = false;
+                    r = 0.05; g = 0.28; b = 0.63; // Very dark blue
                 }
-            });
 
-            const renderTime = performance.now() - startTime;
-            console.log(`Step ${step}: ${renderTime.toFixed(2)}ms`);
+                const polyData = polygonVertexMap[p];
+                
+                // Update bottom vertices (stay at z=0)
+                for(let idx of polyData.bottom) {
+                    colors[idx * 3] = r;
+                    colors[idx * 3 + 1] = g;
+                    colors[idx * 3 + 2] = b;
+                }
+
+                // Update top vertices (scale height by depth)
+                for(let idx of polyData.top) {
+                    const vertexIdx = idx * 3;
+                    posArray[vertexIdx + 1] = Math.max(depth * depthScale, 0.1); // Y is height
+                    colors[vertexIdx] = r;
+                    colors[vertexIdx + 1] = g;
+                    colors[vertexIdx + 2] = b;
+                }
+            }
+
+            positions.needsUpdate = true;
+            mergedGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            mergedMesh.material.vertexColors = true;
+
             currentTimestep = step;
             updateDisplay();
         }
 
         function updateDisplay() {
             const baseDate = new Date('2025-07-13T01:55:00');
-            const totalMinutes = currentTimestep * 5;
             const d = new Date(baseDate);
-            d.setMinutes(d.getMinutes() + totalMinutes);
+            d.setMinutes(d.getMinutes() + currentTimestep * 5);
             
             const dateStr = d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
-            const hours = String(d.getHours()).padStart(2, '0');
-            const minutes = String(d.getMinutes()).padStart(2, '0');
-            const seconds = String(d.getSeconds()).padStart(2, '0');
-            const timeStr = `${hours}:${minutes}:${seconds}`;
+            const timeStr = d.toLocaleTimeString('en-US', { hour12: false });
             
             document.getElementById('timeDisplay').textContent = `${dateStr} - ${timeStr}`;
             document.getElementById('timeSlider').value = currentTimestep;
+            document.getElementById('cacheInfo').innerHTML = 
+                `<div>Step: ${currentTimestep}/336</div>
+                 <div style="margin-top: 5px; font-size: 9px;">Chunk: ${currentChunkIndex} | ~20MB RAM</div>`;
         }
 
         document.getElementById('timeSlider').addEventListener('input', e => {
