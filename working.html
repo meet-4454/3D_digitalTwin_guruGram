@@ -429,9 +429,6 @@
             
             document.getElementById('timeDisplay').textContent = `${dateStr} - ${timeStr}`;
             document.getElementById('timeSlider').value = currentTimestep;
-            document.getElementById('cacheInfo').innerHTML = 
-                `<div>Step: ${currentTimestep}/336</div>
-                 <div style="margin-top: 5px; font-size: 9px;">Chunk: ${currentChunkIndex} | ~20MB RAM</div>`;
         }
 
         document.getElementById('timeSlider').addEventListener('input', e => {
