@@ -67,7 +67,6 @@
         <div class="loader">
             <div class="spinner"></div>
             <h2 style="margin-top: 20px;">Initializing Flood Visualization...</h2>
-            <p id="initialLoadStatus">Loading coordinates...</p>
             <p id="loadingProgress" style="font-size: 12px; margin-top: 10px;">0%</p>
         </div>
     </div>
@@ -175,7 +174,7 @@
 
         async function initializeVisualization() {
             try {
-                document.getElementById('initialLoadStatus').textContent = 'Loading polygon index...';
+                document.getElementById('initialLoadStatus');
                 
                 // Load polygon index (metadata)
                 const indexRes = await fetch('polygon_index.json');
@@ -183,21 +182,21 @@
                 polygonIndex = await indexRes.json();
                 polygonCount = polygonIndex.length;
                 
-                console.log(`✅ Index loaded: ${polygonCount} polygons`);
-                document.getElementById('loadingProgress').textContent = '25% - Loading coordinates...';
+                
+                document.getElementById('loadingProgress');
 
                 // Load binary coordinates
                 const coordRes = await fetch('coordinates.bin');
                 if(!coordRes.ok) throw new Error('Coordinates file not found');
                 const coordBuffer = await coordRes.arrayBuffer();
                 
-                console.log(`✅ Coordinates loaded: ${(coordBuffer.byteLength / 1024 / 1024).toFixed(2)} MB`);
+                
                 document.getElementById('loadingProgress').textContent = '50% - Building geometry...';
 
                 // Create merged geometry from binary coordinates
                 await createMergedGeometry(coordBuffer);
                 
-                console.log(`✅ Merged geometry created`);
+                
                 document.getElementById('loadingProgress').textContent = '75% - Loading first chunk...';
 
                 // Load first chunk
