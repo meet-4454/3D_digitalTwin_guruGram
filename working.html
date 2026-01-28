@@ -331,7 +331,7 @@
             console.log(`Loading chunk ${chunkIndex}/${TOTAL_CHUNKS-1}`);
 
             try {
-                const chunkFile = `chunks/chunk_${String(chunkIndex).padStart(3, '0')}.bin`;
+                const chunkFile = `chunk_${String(chunkIndex).padStart(3, '0')}.bin`;
                 const res = await fetch(chunkFile);
                 if(!res.ok) throw new Error(`Chunk ${chunkIndex} not found`);
                 
