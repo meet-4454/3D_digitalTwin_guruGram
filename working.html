@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D Flood Twin</title>
+    <title>Delhi NCR 3D Flood - Ultra Optimized</title>
     <script src="https://cdn.maptiler.com/maptiler-sdk-js/v2.0.3/maptiler-sdk.umd.js"></script>
     <link href="https://cdn.maptiler.com/maptiler-sdk-js/v2.0.3/maptiler-sdk.css" rel="stylesheet" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -42,7 +42,7 @@
         }
         #timelineControls h3 { margin: 0 0 10px 0; text-align: center; font-size: 14px; color: #1e40af; }
         #timeDisplay { text-align: center; font-size: 18px; font-weight: bold; color: #dc2626; margin-bottom: 10px; }
-        #timeSlider { width: 100%; height: 8px; margin: 10px 0; border-radius: 4px; -webkit-appearance: none; appearance: none; background: linear-gradient(to right, #3b82f6, #1e40af); cursor: pointer; }
+        #timeSlider { width: 100%; height: 8px; margin: 10px 0; border-radius: 4px; -webkit-appearance: none; appearance: none; background: linear-gradient(to right, #3b82f6 0%, #3b82f6 0%, #d1d5db 0%, #d1d5db 100%); cursor: pointer; }
         #timeSlider::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; background: #dc2626; border-radius: 50%; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.3); }
         #timeSlider::-moz-range-thumb { width: 20px; height: 20px; background: #dc2626; border-radius: 50%; border: none; cursor: pointer; }
 
@@ -131,6 +131,7 @@
             onAdd(m, gl) {
                 camera = new THREE.Camera();
                 scene = new THREE.Scene();
+                waterMeshes = []; // Initialize here when scene is ready
                 const light = new THREE.AmbientLight(0xffffff, 0.7);
                 scene.add(light);
                 const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
@@ -185,16 +186,10 @@
                 
                 document.getElementById('loadingProgress');
 
-                // Load binary coordinates
+                // Load binary coordinates (but don't create mesh yet)
                 const coordRes = await fetch('coordinates.bin');
                 if(!coordRes.ok) throw new Error('Coordinates file not found');
-                const coordBuffer = await coordRes.arrayBuffer();
-                
-                
-                document.getElementById('loadingProgress').textContent = '50% - Building geometry...';
-
-                // Create merged geometry from binary coordinates
-                await createMergedGeometry(coordBuffer);
+                coordinatesBuffer = await coordRes.arrayBuffer();
                 
                 
                 document.getElementById('loadingProgress').textContent = '75% - Loading first chunk...';
@@ -216,108 +211,138 @@
             }
         }
 
-        async function createMergedGeometry(coordBuffer) {
-            const view = new DataView(coordBuffer);
+        function createFloodPolygons(step) {
+            if(!scene) return;
+            
+            // Clear previous meshes
+            waterMeshes.forEach(m => {
+                scene.remove(m);
+                m.geometry?.dispose();
+                m.material?.dispose();
+            });
+            waterMeshes = [];
+
+            const depths = currentChunkData[step];
+            if(!depths) return;
+
+            // Parse coordinates buffer - but only render polygons with depth > 0
+            const view = new DataView(coordinatesBuffer);
             let offset = 0;
 
-            const vertices = [];
-            const indices = [];
-            let vertexCount = 0;
-            const polygonVertexMap = []; // Map polygon index to vertex indices
-
+            // First pass: collect all flooded polygons
+            const floodedPolygons = [];
+            let tempOffset = 0;
+            const tempView = new DataView(coordinatesBuffer);
+            
             for(let p = 0; p < polygonCount; p++) {
-                const pointCount = view.getUint32(offset, true);
-                offset += 4;
-
-                // First pass: read all coordinates
-                const coords = [];
-                const tempOffset = offset;
-                for(let i = 0; i < pointCount; i++) {
-                    const lng = view.getFloat64(offset, true);
-                    offset += 8;
-                    const lat = view.getFloat64(offset, true);
-                    offset += 8;
-                    coords.push({lng, lat});
+                const pointCount = tempView.getUint32(tempOffset, true);
+                tempOffset += 4;
+                
+                const depth = depths[p];
+                if(depth > 0) {
+                    floodedPolygons.push({p, depth, startOffset: tempOffset, pointCount});
                 }
-
-                const polygonVertices = [];
-                const topVertices = [];
-
-                // Create vertices from coordinates
-                for(let i = 0; i < coords.length; i++) {
-                    const {lng, lat} = coords[i];
-
-                    const m = maptilersdk.MercatorCoordinate.fromLngLat([lng, lat]);
-                    const x = (m.x - modelTransform.translateX) / modelTransform.scale;
-                    const y = (m.y - modelTransform.translateY) / modelTransform.scale;
-
-                    // Bottom face (z=0)
-                    vertices.push(x, 0, y);
-                    polygonVertices.push(vertexCount);
-                    vertexCount++;
-
-                    // Top face (will be scaled by depth)
-                    vertices.push(x, depthScale, y);
-                    topVertices.push(vertexCount);
-                    vertexCount++;
-                }
-
-                polygonVertexMap.push({
-                    bottom: polygonVertices,
-                    top: topVertices,
-                    count: pointCount
-                });
-
-                // Bottom face triangulation
-                if(polygonVertices.length >= 3) {
-                    for(let i = 1; i < polygonVertices.length - 1; i++) {
-                        indices.push(polygonVertices[0], polygonVertices[i], polygonVertices[i+1]);
-                    }
-                }
-
-                // Top face triangulation (reverse winding)
-                if(topVertices.length >= 3) {
-                    for(let i = 1; i < topVertices.length - 1; i++) {
-                        indices.push(topVertices[0], topVertices[i+1], topVertices[i]);
-                    }
-                }
-
-                // Side faces
-                for(let i = 0; i < pointCount; i++) {
-                    const j = (i + 1) % pointCount;
-                    indices.push(
-                        polygonVertices[i], polygonVertices[j], topVertices[i],
-                        polygonVertices[j], topVertices[j], topVertices[i]
-                    );
-                }
-
-                if(p % 5000 === 0) {
-                    document.getElementById('loadingProgress').textContent = `Building: ${Math.round(p/polygonCount*25 + 50)}%`;
-                }
+                
+                tempOffset += pointCount * 16;
             }
 
-            const geometry = new THREE.BufferGeometry();
-            geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(vertices), 3));
-            geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(indices), 1));
-            geometry.computeVertexNormals();
+            // Batch similar depths to reduce draw calls
+            const depthGroups = {};
+            floodedPolygons.forEach(poly => {
+                let color;
+                if(poly.depth < 0.5) color = '0xbbdefb';
+                else if(poly.depth < 1.0) color = '0x42a5f5';
+                else if(poly.depth < 2.0) color = '0x1976d2';
+                else color = '0x0d47a1';
 
-            const material = new THREE.MeshPhongMaterial({ 
-                color: 0x42a5f5,
-                transparent: true, 
-                opacity: 0.85,
-                side: THREE.DoubleSide,
-                vertexColors: true
+                if(!depthGroups[color]) depthGroups[color] = [];
+                depthGroups[color].push(poly);
             });
 
-            mergedGeometry = geometry;
-            mergedMesh = new THREE.Mesh(geometry, material);
-            mergedMesh.visible = false; // Hide all polygons initially
-            
-            // Store vertex map for height updates
-            mergedMesh.polygonVertexMap = polygonVertexMap;
-            scene.add(mergedMesh);
+            // Create batched meshes by color
+            Object.entries(depthGroups).forEach(([colorStr, polygons]) => {
+                const color = parseInt(colorStr);
+                const vertices = [];
+                const indices = [];
+                let vertexCount = 0;
 
-            console.log(`Merged mesh: ${vertexCount} vertices, ${indices.length / 3} triangles`);
+                polygons.forEach(poly => {
+                    const {startOffset, pointCount, depth} = poly;
+                    
+                    const coords = [];
+                    let readOffset = startOffset;
+                    for(let i = 0; i < pointCount; i++) {
+                        const lng = view.getFloat64(readOffset, true);
+                        readOffset += 8;
+                        const lat = view.getFloat64(readOffset, true);
+                        readOffset += 8;
+                        coords.push({lng, lat});
+                    }
+
+                    const bottomVerts = [];
+                    const topVerts = [];
+
+                    for(let i = 0; i < coords.length; i++) {
+                        const {lng, lat} = coords[i];
+                        const m = maptilersdk.MercatorCoordinate.fromLngLat([lng, lat]);
+                        const x = (m.x - modelTransform.translateX) / modelTransform.scale;
+                        const y = (m.y - modelTransform.translateY) / modelTransform.scale;
+
+                        // Bottom
+                        vertices.push(x, 0, y);
+                        bottomVerts.push(vertexCount++);
+
+                        // Top
+                        vertices.push(x, depth * depthScale, y);
+                        topVerts.push(vertexCount++);
+                    }
+
+                    // Bottom face
+                    if(bottomVerts.length >= 3) {
+                        for(let i = 1; i < bottomVerts.length - 1; i++) {
+                            indices.push(bottomVerts[0], bottomVerts[i], bottomVerts[i+1]);
+                        }
+                    }
+
+                    // Top face
+                    if(topVerts.length >= 3) {
+                        for(let i = 1; i < topVerts.length - 1; i++) {
+                            indices.push(topVerts[0], topVerts[i+1], topVerts[i]);
+                        }
+                    }
+
+                    // Side faces
+                    for(let i = 0; i < coords.length; i++) {
+                        const j = (i + 1) % coords.length;
+                        indices.push(
+                            bottomVerts[i], bottomVerts[j], topVerts[i],
+                            bottomVerts[j], topVerts[j], topVerts[i]
+                        );
+                    }
+                });
+
+                // Create single mesh for this color group
+                if(vertices.length > 0) {
+                    const geometry = new THREE.BufferGeometry();
+                    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(vertices), 3));
+                    geometry.setIndex(new THREE.BufferAttribute(new Uint32Array(indices), 1));
+                    geometry.computeVertexNormals();
+
+                    const material = new THREE.MeshPhongMaterial({
+                        color: color,
+                        transparent: true,
+                        opacity: 0.85,
+                        side: THREE.DoubleSide,
+                        flatShading: false
+                    });
+
+                    const mesh = new THREE.Mesh(geometry, material);
+                    scene.add(mesh);
+                    waterMeshes.push(mesh);
+                }
+            });
+
+            console.log(`Created ${waterMeshes.length} batched meshes for step ${step}`);
         }
 
         async function loadChunk(chunkIndex) {
@@ -352,7 +377,7 @@
         }
 
         function updateTimestep(step) {
-            if(!currentChunkData || !mergedMesh) return;
+            if(!currentChunkData) return;
 
             const chunkIdx = Math.floor(step / CHUNK_SIZE);
             if(chunkIdx !== currentChunkIndex) {
@@ -363,57 +388,8 @@
             const depths = currentChunkData[step];
             if(!depths) return;
 
-            // Make visible on first render
-            if(!mergedMesh.visible) {
-                mergedMesh.visible = true;
-            }
-
-            // Update vertex heights and colors
-            const positions = mergedGeometry.attributes.position;
-            const posArray = positions.array;
-            const colors = new Float32Array(positions.count * 3);
-            let colorIdx = 0;
-
-            const polygonVertexMap = mergedMesh.polygonVertexMap;
-
-            for(let p = 0; p < polygonCount; p++) {
-                const depth = depths[p];
-                let r, g, b;
-
-                if(depth <= 0) {
-                    r = g = b = 1; // White for no flood
-                } else if(depth < 0.5) {
-                    r = 0.73; g = 0.87; b = 0.98; // Light blue
-                } else if(depth < 1.0) {
-                    r = 0.26; g = 0.65; b = 0.96; // Blue
-                } else if(depth < 2.0) {
-                    r = 0.10; g = 0.46; b = 0.82; // Dark blue
-                } else {
-                    r = 0.05; g = 0.28; b = 0.63; // Very dark blue
-                }
-
-                const polyData = polygonVertexMap[p];
-                
-                // Update bottom vertices (stay at z=0)
-                for(let idx of polyData.bottom) {
-                    colors[idx * 3] = r;
-                    colors[idx * 3 + 1] = g;
-                    colors[idx * 3 + 2] = b;
-                }
-
-                // Update top vertices (scale height by depth)
-                for(let idx of polyData.top) {
-                    const vertexIdx = idx * 3;
-                    posArray[vertexIdx + 1] = Math.max(depth * depthScale, 0.1); // Y is height
-                    colors[vertexIdx] = r;
-                    colors[vertexIdx + 1] = g;
-                    colors[vertexIdx + 2] = b;
-                }
-            }
-
-            positions.needsUpdate = true;
-            mergedGeometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-            mergedMesh.material.vertexColors = true;
+            // Create fresh flood polygons for this timestep
+            createFloodPolygons(step);
 
             currentTimestep = step;
             updateDisplay();
@@ -429,11 +405,27 @@
             
             document.getElementById('timeDisplay').textContent = `${dateStr} - ${timeStr}`;
             document.getElementById('timeSlider').value = currentTimestep;
+            
         }
 
         document.getElementById('timeSlider').addEventListener('input', e => {
             const newStep = parseInt(e.target.value);
+            const percentage = (newStep / totalTimesteps) * 100;
+            e.target.style.background = `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${percentage}%, #d1d5db ${percentage}%, #d1d5db 100%)`;
             updateTimestep(newStep);
+        });
+
+        // Allow clicking anywhere on the slider to jump
+        document.getElementById('timeSlider').addEventListener('click', e => {
+            const slider = e.target;
+            const rect = slider.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const percentage = x / rect.width;
+            const newStep = Math.round(percentage * totalTimesteps);
+            slider.value = Math.max(0, Math.min(totalTimesteps, newStep));
+            
+            const evt = new Event('input', { bubbles: true });
+            slider.dispatchEvent(evt);
         });
 
         document.getElementById('playBtn').addEventListener('click', () => {
